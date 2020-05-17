@@ -1,0 +1,462 @@
+---
+title: "Attachment"
+author: "Runfeng Tian"
+date: "5/5/2020"
+output: 
+  pdf_document: 
+    latex_engine: xelatex
+---
+```{r}
+library(timeDate)
+library(xts)
+library(forecast)
+```
+
+
+```{r}
+Nasdaq_price<-read.csv('Nasdaq.csv')
+Pt=xts(Nasdaq_price$Adj.Close,order.by=as.Date(Nasdaq_price$Date))
+
+```
+
+
+
+
+
+```{r}
+sum(is.na(Pt))
+#sapply(index(Pt[is.na(Pt)]),function(x){Pt[x]<-(Pt[x-1]+Pt[x+1])/2})
+t<-list(index(Pt[is.na(Pt)]))
+for(i in t){
+  print(i)
+  Pt[i]<-(as.numeric(Pt[i-1])+as.numeric(Pt[i+1]))/2
+}
+sum(is.na(Pt))
+```
+
+
+```{r}
+rt<-diff(log(Pt))[-1]
+summary<-to.weekly(Pt, name="Nasdaq_price")
+```
+
+
+```{r}
+plot(Pt)
+plot(rt)
+acf(rt,na.action = na.pass)
+pacf(rt,na.action = na.pass)
+```
+```{r}
+library(tibble)
+library(tidyverse)
+library(ggplot2)
+d<-index(Pt)
+all_data<-as_tibble(cbind(Pt,rt))%>%
+mutate(date=d,Period=ifelse(date<='2020-2-19','Befor 2020-02','Objective Period'))
+
+ggplot(aes(date,Pt),data=all_data)+
+ geom_line(aes(col=Period))+
+  labs(title=" overall Nasdaq-100 index trend",
+       x="DATE",'Close Price',y='Close Price')+
+ theme_light()+
+ theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))
+
+ggplot(aes(date,rt),data=all_data)+
+ geom_line(aes(col=Period))+
+   labs(title=" Log Return of Nasdaq-100 index",
+       x="DATE",'Log Return',y='Log Return')+
+ theme_light()+
+theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))   
+```
+```{r}
+ggplot(aes(date,Pt),data=all_data)+
+ geom_line()+
+  labs(title=" overall Nasdaq-100 index trend",
+       x="DATE",'Close Price',y='Close Price')+
+ theme_light()+
+ theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))
+```
+```{r}
+ggplot(aes(date,rt),data=all_data)+
+ geom_line()+
+   labs(title=" Log Return of Nasdaq-100 index",
+       x="DATE",'Log Return',y='Log Return')+
+ theme_light()+
+theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5)) 
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+library(tseries)
+adf.test(rt)
+```
+
+
+
+
+
+
+
+```{r}
+Pt[which.max(Pt)]
+rt_subset<-rt[index(rt)<='2020-02-19']
+rt_test<-rt[index(rt)>'2020-02-19']
+```
+
+
+```{r}
+AIC_p_q_select<-matrix(NA,nrow=5,ncol=5)
+for(p in 0:4){
+  for(q in 0:4){
+    model_tmp<-arima(rt_subset, order = c(p,0,q),include.mean = T)
+    AIC_p_q_select[p+1,q+1]<-model_tmp$aic
+  }
+}
+which(AIC_p_q_select == min(AIC_p_q_select),arr.ind=T)-1
+
+
+
+```
+
+```{r}
+Rt_subset.train<-arima(rt_subset, order = c(4,0,5),include.mean=T)
+checkresiduals(Rt_subset.train)
+```
+
+
+```{r}
+r_train_fit<-xts(fitted(Rt_subset.train),order.by=index(rt_subset))
+d<-as.Date(index(r_train_fit))
+return_train_fit<-exp(r_train_fit)-1
+return_subset<-exp(rt_subset)-1
+
+ARMA_summary_train<-as_tibble(cbind(return_subset,return_train_fit))%>%
+ mutate(date=d,res=return_subset-return_train_fit)
+
+ggplot(aes(date,return_subset),data=ARMA_summary_train[ARMA_summary_train$date>'2008-03-01'&ARMA_summary_train$date<'2008-08-01',])+
+ geom_line(col='red')+
+ geom_line(aes(date,return_train_fit),col='blue')+
+ theme_light()
+
+ggplot(aes(date,res),data=ARMA_summary_train[ARMA_summary_train$date>'2008-03-01'&ARMA_summary_train$date<'2008-08-01',])+
+ geom_point(col='red')+
+ theme_light()
+
+```
+
+```{r}
+ggplot(aes(date,return_subset),data=ARMA_summary_train[ARMA_summary_train$date>'2012-01-01'&ARMA_summary_train$date<'2014-01-01',])+
+geom_line(col='red')+
+geom_line(aes(date,return_train_fit),col='blue')+
+theme_light()
+
+ggplot(aes(date,res),data=ARMA_summary_train[ARMA_summary_train$date>'2002-01-02'&ARMA_summary_train$date<'2014-01-02',])+
+ geom_point(col='red')+
+ theme_light()
+
+```
+
+
+```{r}
+library(tidyverse)
+library(tibble)
+library(ggplot2)
+d<-as.Date(index(Pt[(length(Pt)-51):(length(Pt)-1)]))
+for_arma<-forecast(Rt_subset.train,h=51)
+return_predict<-exp(for_arma$mean)-1
+return_predict_high_bound<-exp(for_arma$upper[,2])-1
+return_predict_lower_bound<-exp(for_arma$lower[,2])-1
+return_test<-exp(rt_test)-1
+
+
+ARMA_summary_predict<-as_tibble(cbind(return_test,return_predict))%>%
+ mutate(date=d,res=return_test-return_predict,lower=return_predict_lower_bound,upper=return_predict_high_bound)
+
+ggplot(aes(date,return_predict),data=ARMA_summary_predict)+
+  geom_line(aes(date,return_test,color='real return value'))+
+  geom_line(aes(col='51-step forecasting'))+
+ geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.2)+
+  labs(title="ARMA(4,5) 51-step forcasting",
+  x="DATE",y='Return')+
+ theme_light()+
+theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))
+  
+  
+  
+  
+  
+
+ggplot(aes(date,res),data=ARMA_summary_predict)+
+ geom_point(col='red')+
+ theme_light()
+ 
+
+
+```
+
+
+
+
+
+```{r}
+library(rugarch)
+model.garch = ugarchspec(mean.model=list(armaOrder=c(4,5),include.mean=T, archm = FALSE, archpow = 1, arfima=FALSE,external.regressors = NULL, archex = FALSE),
+variance.model=list(model='sGARCH',garchOrder=c(1,1), submodel = NULL, external.regressors = NULL, variance.targeting = FALSE),
+distribution.model = "norm" )
+model.garch.fit = ugarchfit(data=rt, spec=model.garch, out.sample=51, solver = 'solnp')
+forc=ugarchforecast(model.garch.fit,n.ahead=51)
+test_prec_g<-forc@forecast$seriesFor
+for_low<-test_prec_g-1.96*forc@forecast$sigmaFor
+for_up<-test_prec_g+1.96*forc@forecast$sigmaFor
+```
+
+```{r}
+d<-as.Date(index(Pt[(length(Pt)-51):(length(Pt)-1)]))
+
+return_predict_g<-exp(test_prec_g)-1
+return_test<-exp(rt_test)-1
+return_test_upper<-exp(for_low)-1
+return_test_lower<-exp(for_up)-1
+
+
+
+
+Garch_summary_predict<-as_tibble(cbind(return_test,return_predict_g))%>%
+ mutate(date=d,res=return_test-return_predict_g,upper=return_test_upper,lower=return_test_lower)
+
+ggplot(aes(date,return_test),data=Garch_summary_predict)+
+ geom_line(aes(col='real return value'))+
+ geom_line(aes(date,return_predict_g,col='51-step forecasting'))+
+ geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.2)+
+ labs(title="ARMA(4,5)-GARCH(1,1) 51-step forecasting",
+  x="DATE",y='Return')+
+ theme_light()+
+  theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))
+
+
+ggplot(aes(date,res),data=Garch_summary_predict)+
+ geom_point(col='red')+
+ theme_light()
+```
+
+
+```{r}
+std_residual_Garch<-model.garch.fit@fit$residuals/model.garch.fit@fit$sigma
+checkresiduals(std_residual_Garch)
+
+```
+
+```{r}
+model.garch.fit@fit$coef
+Box.test(model.garch.fit@fit$residuals/model.garch.fit@fit$sigma, lag = 1, type = 'Ljung-Box', fitdf = 0)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+rt_2019_2020<-rt[index(rt)>='2019-01-01']
+rt_2019_2020_train<-rt_2019_2020[1:(length(rt_2019_2020)-20)]
+rt_2019_2020_test<-rt_2019_2020[(length(rt_2019_2020)-19):length(rt_2019_2020)]
+
+```
+
+
+```{r}
+acf(rt_2019_2020)
+pacf(rt_2019_2020)
+```
+
+
+
+
+
+
+
+
+```{r}
+AIC_p_q_select<-matrix(NA,nrow=6,ncol=6)
+for(p in 0:5){
+  for(q in 0:5){
+    model_tmp<-arima(rt_2019_2020_train, order = c(p,0,q),include.mean = T)
+    AIC_p_q_select[p+1,q+1]<-model_tmp$aic
+  }
+}
+which(AIC_p_q_select == min(AIC_p_q_select),arr.ind=T)-1
+
+```
+
+```{r}
+Rt_2019_2020.train<-arima(rt_2019_2020_train, order = c(4,0,5),include.mean=T)
+checkresiduals(Rt_2019_2020.train)
+
+```
+
+```{r}
+Rt_2019_2020.train$coef
+```
+
+
+```{r}
+r_train_2019_2020_fit<-xts(fitted(Rt_2019_2020.train),order.by=index(rt_2019_2020_train))
+d<-as.Date(index(r_train_2019_2020_fit))
+return_2019_2020_train_fit<-exp(r_train_2019_2020_fit)-1
+return_2019_2020_train<-exp(rt_2019_2020_train)-1
+
+ARMA_2019_2020_summary_train<-as_tibble(cbind(return_2019_2020_train,return_2019_2020_train_fit))%>%
+ mutate(date=d,res=return_2019_2020_train-return_2019_2020_train_fit)
+
+ggplot(aes(date,return_2019_2020_train),data=ARMA_2019_2020_summary_train)+
+ geom_line(col='red')+
+ geom_line(aes(date,return_2019_2020_train_fit),col='blue')+
+ theme_light()
+
+ggplot(aes(date,res),data=ARMA_2019_2020_summary_train)+
+ geom_point(col='red')+
+ theme_light()
+```
+
+
+```{r}
+d<-as.Date(index(rt_2019_2020_test))
+for_arma_2019_2020<-forecast(Rt_2019_2020.train,h=20)
+test_2019_2020_predict<-for_arma_2019_2020$mean
+return_2019_2020_predict<-exp(test_2019_2020_predict)-1
+return_2019_2020_predict_high_bound<-exp(for_arma_2019_2020$upper[,2])-1
+return_2019_2020_predict_lower_bound<-exp(for_arma_2019_2020$lower[,2])-1
+return_test_2019_2020<-exp(rt_2019_2020_test)-1
+
+ARMA_summary_2019_2020_predict<-as_tibble(cbind(return_test_2019_2020,return_2019_2020_predict,upper=return_2019_2020_predict_high_bound,lower=return_2019_2020_predict_lower_bound))%>%
+ mutate(date=d,res=return_test_2019_2020-return_2019_2020_predict)
+
+ggplot(aes(date,return_test_2019_2020),data=ARMA_summary_2019_2020_predict)+
+ geom_line(aes(col='real return value'))+
+ geom_line(aes(date,return_2019_2020_predict,col='20-step forecasting'))+
+geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.2)+
+labs(title="ARMA(4,5) 20-step forcasting",
+  x="DATE",y='Return')+  
+ theme_light()+
+ theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))
+
+ggplot(aes(date,res),data=ARMA_summary_2019_2020_predict)+
+ geom_point(col='red')+
+ labs(title="ARMA(4,5) Test Error",
+ x="DATE",y='Res')+
+ theme_light()+
+ theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```
+
+
+
+```{r}
+model.garch = ugarchspec(mean.model=list(armaOrder=c(4,3),include.mean=T, archm = FALSE, archpow = 1, arfima=F,external.regressors = NULL, archex = FALSE),
+variance.model=list(model='sGARCH',garchOrder=c(1,1), submodel = NULL, external.regressors = NULL, variance.targeting = FALSE),
+distribution.model = "norm" )
+model.garch.fit = ugarchfit(data=rt_2019_2020, spec=model.garch, out.sample=20, solver = 'solnp')
+```
+
+
+
+
+
+
+
+Garch fitted plot
+```{r}
+r_train_2019_2020_fit_g<-xts( model.garch.fit@fit$fitted.values,order.by=index(rt_2019_2020_train))
+d<-as.Date(index(r_train_2019_2020_fit))
+return_2019_2020_train_fit<-exp(r_train_2019_2020_fit_g)-1
+return_2019_2020_train<-exp(rt_2019_2020_train)-1
+
+Garch_2019_2020_summary_train<-as_tibble(cbind(return_2019_2020_train,return_2019_2020_train_fit))%>%
+ mutate(date=d,res=return_2019_2020_train-return_2019_2020_train_fit)
+
+ggplot(aes(date,return_2019_2020_train),data=Garch_2019_2020_summary_train)+
+ geom_line(col='red')+
+ geom_line(aes(date,return_2019_2020_train_fit),col='blue')+
+ theme_light()
+
+ggplot(aes(date,res),data=Garch_2019_2020_summary_train)+
+ geom_point(col='red')+
+ theme_light()
+```
+
+Garch forecast
+
+```{r}
+d<-as.Date(index(rt_2019_2020_test))
+
+forc=ugarchforecast(model.garch.fit,n.ahead=20)
+test_prec_2019_2020_g<-forc@forecast$seriesFor
+for_low_2019_2020_g<-test_prec_2019_2020_g-1.96*forc@forecast$sigmaFor
+for_up_2019_2020_g<-test_prec_2019_2020_g+1.96*forc@forecast$sigmaFor
+
+
+return_test_2019_2020_g<-exp(test_prec_2019_2020_g)-1
+return_test_2019_2020_g_upper<-exp(for_up_2019_2020_g)-1
+return_test_2019_2020_g_lower<-exp(for_low_2019_2020_g)-1
+
+
+Garch_summary_2019_2020_predict<-as_tibble(cbind(return_test_2019_2020,return_test_2019_2020_g))%>%
+ mutate(date=d,res=return_test_2019_2020-return_test_2019_2020_g,upper=return_test_2019_2020_g_upper,lower=return_test_2019_2020_g_lower)
+
+ggplot(aes(date,return_test_2019_2020),data=Garch_summary_2019_2020_predict)+
+ geom_line(aes(col='real return value'))+
+ geom_line(aes(date,return_test_2019_2020_g,col='20-step forecasting'))+
+geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.2)+
+  labs(title="ARMA(4,3)-GARCH(1,1) 20-step forcasting",
+  x="DATE",y='Return')+
+ theme_light()+
+ theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))
+
+
+ggplot(aes(date,res),data=Garch_summary_2019_2020_predict)+
+geom_point(col='red')+
+labs(title="ARMA(4,3)-GARCH(1,1) Test Error",
+ x="DATE",y='Res')+
+ theme_light()+
+ theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))
+
+```
+
